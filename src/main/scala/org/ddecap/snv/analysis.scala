@@ -363,10 +363,10 @@ val lgOf2 = math.log(2)
 		genotypes.filter(x => x.head.genotype.getAlternateReadDepth.toFloat == x.head.genotype.getReadDepth).count.toDouble / genotypes.count.toDouble
 	}
 	def getRareFraction(genotypes: RDD[Iterable[GenotypeWithMetadata]]) : Double = {
-		genotypes.filter(x => x.head.annotations.getDbSnpAnnotations == null).count.toDouble / genotypes.count.toDouble
+		genotypes.filter(x => x.head.annotations.getDbSnpAnnotations != null).count.toDouble / genotypes.count.toDouble
 	}
 	def getClinvarFraction(genotypes: RDD[Iterable[GenotypeWithMetadata]]) : Double = {
-		genotypes.filter(x => x.head.annotations.getClinvarAnnotations == null).count.toDouble / genotypes.count.toDouble
+		genotypes.filter(x => x.head.annotations.getClinvarAnnotations != null).count.toDouble / genotypes.count.toDouble
 	}
 	def alleleFrequency(genotypes: RDD[Iterable[GenotypeWithMetadata]], name: String) : RDD[(String, Double, Int)] = {
 		genotypes.map(x => ("%.1f".format(x.head.genotype.getAlternateReadDepth.toFloat / x.head.genotype.getReadDepth) ,1))
