@@ -2,7 +2,7 @@ organization := "org.ddecap"
 
 name := "rna-wxs-comparison"
 
-homepage := Some(url(s"https://github.com/tmoerman/"+name.value))
+homepage := Some(url(s"https://github.com/ddecap/"+name.value))
 
 scalaVersion := "2.10.4"
 

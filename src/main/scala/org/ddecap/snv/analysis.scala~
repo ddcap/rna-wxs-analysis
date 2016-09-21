@@ -139,6 +139,30 @@ function(data, headers, chart /*dimple: http://dimplejs.org/*/) {
       chart.draw();
 }
 """
+val RDHist = """
+function(data, headers, chart /*dimple: http://dimplejs.org/*/) {
+      chart.setBounds(80, 20, 480, 330)
+      var y =chart.addMeasureAxis("y", "_3");
+      y.title = "normalized % variants"
+      var x =chart.addMeasureAxis("x", "_2");
+      x.title = "ReadDepth"
+      var s = chart.addSeries(["_2", "_1"], dimple.plot.line);
+      chart.addLegend(200, 10, 380, 20, "right");
+      chart.draw();
+}
+"""
+val MRDHist = """
+function(data, headers, chart /*dimple: http://dimplejs.org/*/) {
+      chart.setBounds(80, 20, 480, 330)
+      var y =chart.addMeasureAxis("y", "_3");
+      y.title = "normalized % variants"
+      var x =chart.addMeasureAxis("x", "_2");
+      x.title = "Matching ReadDepth"
+      var s = chart.addSeries(["_2", "_1"], dimple.plot.line);
+      chart.addLegend(200, 10, 380, 20, "right");
+      chart.draw();
+}
+"""
 val QBDHist = """
 function(data, headers, chart /*dimple: http://dimplejs.org/*/) {
       chart.setBounds(80, 20, 480, 330)
@@ -170,6 +194,18 @@ function(data, headers, chart /*dimple: http://dimplejs.org/*/) {
       y.title = "# variants"
       var x =chart.addCategoryAxis("x", "_2");
       x.title = "annotation type"
+      chart.addSeries("_1", dimple.plot.bar);
+      chart.addLegend(200, 10, 380, 20, "right");
+      chart.draw();
+}
+"""
+val biotypeFreqBarGraph = """
+function(data, headers, chart /*dimple: http://dimplejs.org/*/) {
+      chart.setBounds(80, 20, 480, 330)
+      var y =chart.addMeasureAxis("y", "_3");
+      y.title = "# variants"
+      var x =chart.addCategoryAxis("x", "_2");
+      x.title = "transcript biotype"
       chart.addSeries("_1", dimple.plot.bar);
       chart.addLegend(200, 10, 380, 20, "right");
       chart.draw();
@@ -291,7 +327,17 @@ function(data, headers, chart /*dimple: http://dimplejs.org/*/) {
       chart.draw();
 }
 """
-
+val bChangesPctGraph = """
+function(data, headers, chart /*dimple: http://dimplejs.org/*/) {
+      chart.setBounds(80, 30, 480, 330)
+      chart.addPctAxis("y", "_3");
+      chart.addCategoryAxis("x", "_1");
+      chart.addSeries(["_1", "_2"], dimple.plot.bar);
+      chart.addLegend(200, 10, 380, 20, "right");
+      chart.draw();
+}
+"""
+  
 val lgOf2 = math.log(2)
 
 	case class GenotypeWithMetadata(
@@ -312,7 +358,7 @@ val lgOf2 = math.log(2)
 		            qd: Double = 0, 
 		            rpkm: Double = 0): RDD[Iterable[GenotypeWithMetadata]] = {
 	  genotypes.filter(x => ! x.filter(v => (v.otherCoverage >= mDepthFilter &&
-		                                     v.genotype.getReadDepth >= math.max(depth, mDepthFilter) &&
+		                                     v.genotype.getReadDepth >= depth &&
 		                                     v.genotype.getGenotypeQuality >= gq &&
 		                                     v.genotype.getVariantCallingAnnotations.getVariantCallErrorProbability >= qual &&
 		                                     v.rpkm >= rpkm &&
@@ -328,11 +374,31 @@ val lgOf2 = math.log(2)
 	def binQuality(q: Double): Double ={
 	  math.round(math.pow(2, math.ceil(math.log(q)/(lgOf2/4))/4))
 	}
+	def readDepthHist(genotypes: RDD[Iterable[GenotypeWithMetadata]], name: String, th: Int = 100) : RDD[(String, Double, Double)] = {
+		val gCount = genotypes.count.toFloat
+		genotypes.map(x => (x.maxBy(_.genotype.getReadDepth).genotype.getReadDepth/2*2+1, 1))
+				 .map(x => if (x._1 >= th) (th, x._2) else (x._1, x._2))
+				 .reduceByKey(_+_)
+                 .map(x => (name, x._1.toFloat, x._2/gCount))
+	}
+	def matchingReadDepthHist(genotypes: RDD[Iterable[GenotypeWithMetadata]], name: String, th: Long = 100) : RDD[(String, Double, Double)] = {
+		val gCount = genotypes.count.toFloat
+		genotypes.map(x => (x.maxBy(_.otherCoverage).otherCoverage/2*2+1, 1))
+				 .map(x => if (x._1 >= th) (th, x._2) else (x._1, x._2))
+		 		 .reduceByKey(_+_)
+                 .map(x => (name, x._1.toFloat, x._2/gCount))
+	}
 	def qualityHist(genotypes: RDD[Iterable[GenotypeWithMetadata]], name: String) : RDD[(String, Double, Double)] = {
 		val gCount = genotypes.count.toFloat
 		genotypes.map(x => (binQuality(x.maxBy(_.genotype.getVariantCallingAnnotations.getVariantCallErrorProbability)
-                                                .genotype.getVariantCallingAnnotations.getVariantCallErrorProbability.toDouble), 1)) 					 .reduceByKey(_+_)
+                                                .genotype.getVariantCallingAnnotations.getVariantCallErrorProbability.toDouble), 1)) 	
+                 .reduceByKey(_+_)
                  .map(x => (name, x._1, x._2/gCount))
+	}
+	def biotypeCount(genotypes: RDD[Iterable[GenotypeWithMetadata]], name: String) : RDD[(String, String, Int)] = {
+		genotypes.map(x => x.head.annotations.getFunctionalAnnotations.head.getTranscriptBiotype)
+                 .map(x => (x, 1)).reduceByKey(_ + _)
+                 .map{case (x,r) => (name,x,r)}.map(x => if (x._2 == null) (x._1, "No_Biotype", x._3) else (x._1, x._2, x._3))
 	}
 	def annotationCount(genotypes: RDD[Iterable[GenotypeWithMetadata]], name: String) : RDD[(String, String, Int)] = {
 		genotypes.map(x => x.head.annotations.getFunctionalAnnotations.head.getAnnotations.head)
@@ -354,24 +420,28 @@ val lgOf2 = math.log(2)
 	def getMultiAllelicSNVsFraction(genotypes: RDD[Iterable[GenotypeWithMetadata]]) : Double = {
 		genotypes.filter(x => x.size > 1).count.toDouble / genotypes.count.toDouble
 	}
-	def getHomozygousFraction1(genotypes: RDD[Iterable[GenotypeWithMetadata]]) : Double = {
-		genotypes.filter(x => {
-                            	val all = x.head.genotype.getAlleles
-                            	all(0) == all(1)}).count.toDouble / genotypes.count.toDouble
+	def getHomozygousFraction(genotypes: RDD[Iterable[GenotypeWithMetadata]]) : Double = {
+		genotypes.filter(x => x.filter{g =>
+                            	val all = g.genotype.getAlleles
+                            	all(0) == all(1)}.size == x.size).count.toDouble / genotypes.count.toDouble
 	}
-	def getHomozygousFraction2(genotypes: RDD[Iterable[GenotypeWithMetadata]]) : Double = {
-		genotypes.filter(x => x.head.genotype.getAlternateReadDepth.toFloat == x.head.genotype.getReadDepth).count.toDouble / genotypes.count.toDouble
-	}
-	def getRareFraction(genotypes: RDD[Iterable[GenotypeWithMetadata]]) : Double = {
-		genotypes.filter(x => x.head.annotations.getDbSnpAnnotations == null).count.toDouble / genotypes.count.toDouble
+	def getCommonFraction(genotypes: RDD[Iterable[GenotypeWithMetadata]]) : Double = {
+		genotypes.filter(x => x.head.annotations.getDbSnpAnnotations != null).count.toDouble / genotypes.count.toDouble
 	}
 	def getClinvarFraction(genotypes: RDD[Iterable[GenotypeWithMetadata]]) : Double = {
-		genotypes.filter(x => x.head.annotations.getClinvarAnnotations == null).count.toDouble / genotypes.count.toDouble
+		genotypes.filter(x => x.head.annotations.getClinvarAnnotations != null).count.toDouble / genotypes.count.toDouble
 	}
 	def alleleFrequency(genotypes: RDD[Iterable[GenotypeWithMetadata]], name: String) : RDD[(String, Double, Int)] = {
 		genotypes.map(x => ("%.1f".format(x.head.genotype.getAlternateReadDepth.toFloat / x.head.genotype.getReadDepth) ,1))
                  .reduceByKey(_ + _)
                  .map{ case (freq, count) => (name,freq.toDouble,count)}
+	}
+	def getAllFractions(genotypes: RDD[Iterable[GenotypeWithMetadata]], name: String) : Map[String, Double] = {
+	  Map(name + " Ti/Tv" -> getTiTvRatio(genotypes),
+	      name + " MultiAllele" -> getMultiAllelicSNVsFraction(genotypes),
+	      name + " Homozygous" -> getHomozygousFraction(genotypes),
+	      name + " Common" -> getCommonFraction(genotypes),
+	      name + " ClinVar" -> getClinvarFraction(genotypes))
 	}
 	def scatterAlleleFrequency(genotypes: RDD[(Iterable[GenotypeWithMetadata], Iterable[GenotypeWithMetadata])], name: String) : RDD[(String, Double, Double, Int)] = {
 		genotypes.map(x => 
@@ -385,9 +455,15 @@ val lgOf2 = math.log(2)
                        .map{case (x, y) => (x._1, x._2.toDouble, x._3.toDouble, y.toInt)}
 	}
 	def baseChanges(genotypes: RDD[Iterable[GenotypeWithMetadata]], name: String) : RDD[(String, String, Long)] = {
-		genotypes.map(g => ((g.head.genotype.getVariant.getReferenceAllele, g.head.genotype.getVariant.getAlternateAllele), 1))
-                 .reduceByKey(_+_)
-				 .map(x => (name, x._1._1+">"+x._1._2, x._2))
+		genotypes.filter(g=> g.filter(x=> x.genotype.getVariant.getReferenceAllele.length == 1 && 
+										   x.genotype.getVariant.getAlternateAllele.length == 1).size > 0)
+				 .map(g => { 
+					val tmp = g.filter(x=> x.genotype.getVariant.getReferenceAllele.length == 1 && 
+										   x.genotype.getVariant.getAlternateAllele.length == 1).head
+										   
+					((tmp.genotype.getVariant.getReferenceAllele, tmp.genotype.getVariant.getAlternateAllele), 1)
+					}).reduceByKey(_+_)
+					  .map(x => (name, x._1._1+">"+x._1._2, x._2))
 	}
 	def UniquifyNoAllele(genotype: Genotype): String = {
 	  val v = genotype.getVariant
@@ -400,6 +476,18 @@ val lgOf2 = math.log(2)
 	  v.getReferenceAllele + ">" +v.getAlternateAllele
 	}
 
+	def readSnvWithMetaRepartition(sc: SparkContext, input: String, rpkmFile: String, mCovFile: String, partitions: Int): RDD[(String, GenotypeWithMetadata)] = {
+	  val rpkm = sc.textFile(rpkmFile).map(x => x.split("\t")).map(x => (x(0), x(1).toDouble)).repartition(partitions)
+	  val mCov = sc.textFile(mCovFile).map(x => x.split("\t")).map(x => (x(0), x(1).toLong)).repartition(partitions)
+	  val ec = new SnpEffContext(sc)
+	  val genotypes = ec.loadAnnotatedGenotypes(input).map(x => (UniquifyNoAllele(x.getGenotype), x)).repartition(partitions)
+	  val genotypesWithRpkm = genotypes.leftOuterJoin(rpkm)
+		                               .map{ case (id, (g, rpkm)) => (id, (g, rpkm.getOrElse(0.0))) }
+	  genotypesWithRpkm.leftOuterJoin(mCov)
+		               .map{ case (id, ((g, r), mcov)) => 
+		                    (UniquifyNoAllele(g.getGenotype), 
+		                     GenotypeWithMetadata(g.getGenotype, g.getAnnotations, r, mcov.getOrElse(0L))) }
+	}
 	def readSnvWithMeta(sc: SparkContext, input: String, rpkmFile: String, mCovFile: String): RDD[(String, GenotypeWithMetadata)] = {
 	  val rpkm = sc.textFile(rpkmFile).map(x => x.split("\t")).map(x => (x(0), x(1).toDouble))
 	  val mCov = sc.textFile(mCovFile).map(x => x.split("\t")).map(x => (x(0), x(1).toLong))
@@ -412,7 +500,6 @@ val lgOf2 = math.log(2)
 		                    (UniquifyNoAllele(g.getGenotype), 
 		                     GenotypeWithMetadata(g.getGenotype, g.getAnnotations, r, mcov.getOrElse(0L))) }
 	}
-
 	def getOverlapWithBed(seqDict: SequenceDictionary,
                       genotypes: RDD[Iterable[GenotypeWithMetadata]],
                       bedRDD: RDD[ReferenceRegion]): RDD[Iterable[GenotypeWithMetadata]] = {
